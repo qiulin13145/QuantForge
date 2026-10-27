@@ -31,15 +31,13 @@
 
 ---
 
-**QuantForge** is a framework for discovering executable algorithms. It combines program evolution with controlled experiments: useful programs are retained by performance, while evidence decides what to change next.
+**QuantForge** discovers executable algorithms by combining AI-driven program evolution with controlled experiments. Give it an initial program and a task-specific evaluator; it tests candidates, investigates why they work, and uses the evidence to guide the next revision.
 
 In our [paper](https://arxiv.org/abs/2609.34680), QuantForge discovers **HiRes**, a hierarchical MXFP4 post-training quantization algorithm. Under a matched search budget, it reaches a held-out transfer target in **6 of 8 runs**, compared with **3 of 8** for reflection memory.
 
 <p align="center">
   <img src="assets/quantforge-overview.svg" width="100%" alt="QuantForge overview: programs and evidence co-evolve through targeted experiments and residual compilation">
 </p>
-
-<p align="center"><em>QuantForge retains effective programs while controlled evidence guides their next revision.</em></p>
 
 ## How It Works
 
@@ -49,8 +47,6 @@ QuantForge builds a search around a simple question: **what should the next prog
 2. **Test competing explanations.** Register predictions before execution and select the lowest-cost controls that distinguish them.
 3. **Turn verdicts into code.** Use the experimental result to direct a successor, then check the changed computation with an execution probe and a task-specific response check.
 4. **Measure again.** Evaluate the revised program and use its remaining errors to open the next question.
-
-The search is built around a frozen task contract and supports interchangeable proposer and evaluator commands. Local run state keeps the experiment packet, program lineage, budget, and evidence together across rounds.
 
 ## A Control That Changed the Next Design
 
@@ -69,17 +65,13 @@ To tell them apart, QuantForge shuffled the input channels and inversely reorder
 
 The error ratio rose from **3.1× to 4.6×**, supporting the block-membership explanation. QuantForge turned that verdict into a specific code change: identify the channels that drive each block's shared scale and equalize them. This successor improved the search-visible Qwen3-4B perplexity from **11.42 to 11.19**. Given the same parent and evidence, a free-reflection successor widened the scale search instead and reached **11.44**.
 
-This is how QuantForge turns experimental evidence into **a concrete direction for the next program**.
-
 ## The Discovered Algorithm: HiRes
 
-QuantForge's paper develops **HiRes** as three successive responses to measured quantization residuals. Each stage acts on the model realized by the preceding stage.
+The search discovers **HiRes**, a three-stage MXFP4 quantizer. Each stage addresses residuals measured on the model produced by the previous stage.
 
 <p align="center">
   <img src="assets/hires-equations.png" width="100%" alt="HiRes equations for geometric shaping, discrete realization, and attention and MLP structural recovery">
 </p>
-
-See [Section 5 of the paper](https://arxiv.org/html/2609.34680v1#S5) for definitions and the complete algorithm.
 
 ## Paper Results
 
@@ -91,7 +83,7 @@ With the same **240-call search budget** and **eight paired seeds**, QuantForge 
   <img src="assets/search-progress.png" width="100%" alt="Paper Figure 2: held-out perplexity during search and final results at 240 evaluator calls">
 </p>
 
-Search uses Qwen3-4B; transfer is measured on held-out Llama-3.1-8B WikiText-2. QuantForge spends 141 calls on new programs and 99 on controls and compliance probes. Held-out evaluations are performed separately and are not included in the 240-call search budget. See [Section 6.2](https://arxiv.org/html/2609.34680v1#S6.SS2) for the protocol.
+Search uses Qwen3-4B; transfer is measured on held-out Llama-3.1-8B WikiText-2. The search budget comprises 141 calls for new programs and 99 for controls and probes; held-out evaluations are separate.
 
 ### HiRes: a discovered MXFP4 quantizer
 
@@ -101,14 +93,10 @@ Across seven models and seven tasks, HiRes obtains the best **Robust Fit: 0.0930
   <img src="assets/hires-table1.svg" width="100%" alt="Paper Table 1, restyled: HiRes and nine baselines across seven models, mean Fit-7 and Robust Fit">
 </p>
 
-<p align="center"><em>Paper Table 1, restyled. Fit-7 combines mean and worst-task damage; Robust Fit applies the same aggregation across models. Lower is better.</em></p>
-
 <details>
 <summary>Stage progression and ablations · paper Table 2</summary>
 <p align="center"><img src="assets/paper-fit3-ablation.png" width="100%" alt="Paper Table 2: Fit-3 across HiRes stages and ablations on Qwen3-8B and Llama-3-8B"></p>
 </details>
-
-All methods use the same strict MXFP4 W4A4 evaluation contract.
 
 ## Quick Start
 
@@ -120,14 +108,33 @@ cd QuantForge
 python3 -m pip install -e .
 ```
 
-Start a Block32 search with an authenticated [Codex CLI](https://github.com/openai/codex) proposer:
+Start with **bin packing**: the included example searches for a heuristic that fits items into as few bins as possible. It uses an authenticated [Codex CLI](https://github.com/openai/codex) proposer.
 
 ```bash
-quantforge init runs/block32 --config examples/block32/config.json
-quantforge step runs/block32
+quantforge init runs/binpacking --config examples/binpacking/config.json
+quantforge step runs/binpacking
 ```
 
-Run `quantforge step runs/block32` again to continue the search. Connect your own proposer or objective through the [backend interfaces](docs/backends.md), and explore the [paper protocol](docs/paper-protocol.md) for the model-level evaluation settings.
+### Design your own algorithm
+
+Copy the example and adapt three pieces to your problem:
+
+```bash
+cp -R examples/binpacking my-task
+```
+
+1. **Initial program:** implement your algorithm as a Python function in `baseline.py`.
+2. **Evaluator:** define how to run a candidate, check its validity, score it, and test a verdict-guided revision in `evaluator.py`.
+3. **Task configuration:** set your objective, first design question, function name, probe input, and budget in `config.json`.
+
+Then run your search:
+
+```bash
+quantforge init runs/my-task --config my-task/config.json
+quantforge step runs/my-task
+```
+
+Run `step` again to continue. See [design your own algorithm](docs/design-your-own.md) for the walkthrough and [backend interfaces](docs/backends.md) to connect a different proposer or evaluator. The [Block32 example](examples/block32/) shows how to apply the same loop to quantization.
 
 ## Citation
 
