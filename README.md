@@ -36,10 +36,10 @@
 In our [paper](https://arxiv.org/abs/2609.34680), QuantForge discovers **HiRes**, a hierarchical MXFP4 post-training quantization algorithm. Under a matched search budget, it reaches a held-out transfer target in **6 of 8 runs**, compared with **3 of 8** for reflection memory.
 
 <p align="center">
-  <img src="assets/quantforge-overview.png" width="100%" alt="QuantForge overview: programs and evidence co-evolve through targeted experiments and residual compilation">
+  <img src="assets/quantforge-overview.svg" width="100%" alt="QuantForge overview: programs and evidence co-evolve through targeted experiments and residual compilation">
 </p>
 
-<p align="center"><em>QuantForge retains effective programs while controlled evidence guides their next revision. Figure 1 from the paper.</em></p>
+<p align="center"><em>QuantForge retains effective programs while controlled evidence guides their next revision.</em> <a href="assets/quantforge-overview.pdf">Original figure · PDF</a></p>
 
 ## How It Works
 
@@ -57,37 +57,38 @@ The search is built around a frozen task contract and supports interchangeable p
 On Qwen3-4B, the search encountered unusually large activation-quantization error in `down_proj`. Was it caused by **which channels shared a Block32 exponent**, or by the tensor's **global dynamic range**? A function-preserving permutation separated the two explanations and changed the next code revision.
 
 <p align="center">
-  <img src="assets/control-guided-update.png" width="100%" alt="A real paper case: permuting down-projection input channels changes block membership, guides channel equalization, and improves the successor's visible perplexity">
+  <img src="assets/control-guided.gif" width="100%" alt="Animated paper example: observe a quantization residual, run a channel-permutation control, and use its verdict to guide the next program">
 </p>
 
 The control supported the block-membership explanation. A verdict-guided successor equalized channels according to their contribution to the shared exponent; a free-reflection successor widened the scale search. Both used the same parent and evidence. PPL is measured on the **search-visible Qwen3-4B**; contaminated blocks have a within-block maximum-to-median magnitude ratio greater than 32. See the [paper's verdict-guided example](https://arxiv.org/html/2609.34680v1#A4.SS2.SSS0.Px2.p3).
 
 ## The Discovered Algorithm: HiRes
 
-QuantForge's paper develops **HiRes** as three successive responses to measured quantization residuals. The equations below highlight the central computation in each stage; the [paper](https://arxiv.org/html/2609.34680v1#S5) gives the full construction.
+QuantForge's paper develops **HiRes** as three successive responses to measured quantization residuals. Each stage acts on the model realized by the preceding stage.
 
-**1 · Geometric shaping.** Transform activations and weights in paired coordinates before quantization:
+<p align="center">
+  <img src="assets/hires-equations.png" width="100%" alt="HiRes equations for geometric shaping, discrete realization, and attention and MLP structural recovery">
+</p>
 
-$$
-U = D R_H G P_{\mathrm{ref}},\qquad
-\widetilde X = XU^{\top},\qquad
-\widetilde W = WU^{-1}.
-$$
+<p align="center"><a href="assets/hires-equations.svg">View equations in vector format</a></p>
 
-**2 · Discrete realization.** After installing W4 weights, evaluate a legal A4 code change against the realized operator:
+<details>
+<summary>Copy the core equations · LaTeX</summary>
 
-$$
-\Delta(i,c)=2\delta_{ic}[G_Q d_0-K_Q x]_i+\delta_{ic}^{2}[G_Q]_{ii}.
-$$
+```latex
+U = D R_H G P_{\mathrm{ref}},
+\quad \widetilde X = XU^{\top},\quad \widetilde W = WU^{-1}.
 
-Here $d_0=q_0-x$, $\delta_{ic}=c-[q_0]_i$, $G_Q=\widehat W^{\top}\widehat W$, and $K_Q=\widehat W^{\top}(W-\widehat W)$. The best negative change is accepted, with at most one code changed per block.
+\Delta(i,c) = 2\delta_{ic}[G_Q d_0-K_Q x]_i
+              + \delta_{ic}^{2}[G_Q]_{ii}.
 
-**3 · Structural recovery.** Correct the attention value path, then remeasure and fit the MLP path:
+\overline{\mathbf v}_t = a\mathbf v_t+b\mathbf 1,
+\quad \overline m = \operatorname{SiLU}\left((1+\beta)g
+                    + \alpha\sigma_g\right)\odot(1+\eta)u.
+```
+</details>
 
-$$
-\overline{\mathbf v}_t=a\mathbf v_t+b\mathbf 1,\qquad
-\overline m=\operatorname{SiLU}\left((1+\beta)g+\alpha\sigma_g\right)\odot(1+\eta)u.
-$$
+See [Section 5 of the paper](https://arxiv.org/html/2609.34680v1#S5) for definitions and the complete algorithm.
 
 ## Paper Results
 
@@ -99,13 +100,6 @@ With the same **240-call search budget** and **eight paired seeds**, QuantForge 
   <img src="assets/search-progress.png" width="100%" alt="Paper Figure 2: held-out perplexity during search and final results at 240 evaluator calls">
 </p>
 
-| Search method | Median held-out PPL ↓ | Runs reaching PPL ≤ 8.00 ↑ |
-|:---|---:|---:|
-| Score-only | 10.03 | 1 / 8 |
-| TextMem | 9.20 | 3 / 8 |
-| ReflectMem | 8.09 | 3 / 8 |
-| **QuantForge** | **7.80** | **6 / 8** |
-
 Search uses Qwen3-4B; transfer is measured on held-out Llama-3.1-8B WikiText-2. QuantForge spends 141 calls on new programs and 99 on controls and compliance probes. Held-out evaluations are performed separately and are not included in the 240-call search budget. See [Section 6.2](https://arxiv.org/html/2609.34680v1#S6.SS2) for the protocol.
 
 ### HiRes: a discovered MXFP4 quantizer
@@ -113,15 +107,10 @@ Search uses Qwen3-4B; transfer is measured on held-out Llama-3.1-8B WikiText-2. 
 Across seven models and seven tasks, HiRes obtains the best **Robust Fit: 0.09300**, compared with 0.09910 for WUSH. It has the lowest Fit-7 on six of the seven models; WUSH leads on Qwen3-4B.
 
 <p align="center">
-  <img src="assets/fitness-overview.png" width="100%" alt="Per-model Fit-7 for HiRes and WUSH across seven models, and Robust Fit for the four strongest methods">
+  <img src="assets/hires-table1.svg" width="100%" alt="Paper Table 1, restyled: HiRes and nine baselines across seven models, mean Fit-7 and Robust Fit">
 </p>
 
-<p align="center"><em>Fit-7 combines mean and worst-task damage; Robust Fit applies the same aggregation across models. Lower is better. Data from paper Table 1.</em></p>
-
-<details>
-<summary>Full seven-model Fit-7 results · paper Table 1</summary>
-<p align="center"><img src="assets/paper-fit7-table.png" width="100%" alt="Paper Table 1: Fit-7 across seven models for HiRes and nine baselines"></p>
-</details>
+<p align="center"><em>Paper Table 1, restyled. Fit-7 combines mean and worst-task damage; Robust Fit applies the same aggregation across models. Lower is better.</em></p>
 
 <details>
 <summary>Stage progression and ablations · paper Table 2</summary>
