@@ -19,7 +19,7 @@ Requests contain `phase`, `context`, `prompt`, and `json_schema`. The `proposal`
 
 The first explanation is the focal one. Every condition predicts one category per explanation. A control supplies complete executable source. Condition costs are positive integer evaluator-call units; the minimum-cost compiler validates that the chosen conditions separate all explanation pairs before any candidate evaluation.
 
-The `response` phase receives the verdict, required response, candidate source and measured results. It returns `source` and a `next_residual` with `id`, `question`, `scope`, and `probe_input`. The scope is a top-level synchronous function in the submitted Python source. A probe input is passed as the function's sole argument, or as `{"args": [...], "kwargs": {...}}` for multiple arguments.
+The `response` phase receives the verdict, required response, candidate source and measured results, and returns the revised `source`. After the revised program is remeasured, the `residual` phase receives that measurement and returns the next residual with `id`, `question`, `scope`, and `probe_input`. The scope is a top-level synchronous function in the submitted Python source. A probe input is passed as the function's sole argument, or as `{"args": [...], "kwargs": {...}}` for multiple arguments.
 
 ## Evaluator
 
@@ -29,9 +29,9 @@ An evaluator receives `source`, `parent_source`, `parent_score`, `condition`, `c
 {"success": true, "safe": true, "score": 0.1, "outcome": "gain", "signature": true}
 ```
 
-`score` is finite and is compared according to `direction` in the configuration. `outcome` must use the same categorical vocabulary as the proposal's predictions. `signature` says whether the target mechanism's signal was observed. The evaluator is responsible for enforcing the frozen task contract and measuring each condition on the same basis.
+`score` is finite and is compared according to `direction` in the configuration. `outcome` must use the same categorical vocabulary as the proposal's predictions. `signature` says whether the target mechanism's signal was observed. An optional `parent_equivalent` boolean indicates whether the intervention behaves equivalently to its parent on the evaluator's inputs. The evaluator is responsible for enforcing the frozen task contract and measuring each condition on the same basis.
 
-For `phase: "probe"`, `condition` also includes the verdict, required response, tested candidate source, primary condition, and execution trace summary. The evaluator must return `response_valid: true` only when the successor satisfies its task-specific response check. For `phase: "measurement"`, it measures the changed program and returns the normal result fields.
+For `phase: "probe"`, `condition` also includes the verdict, required response, tested candidate source, primary condition, residual, explanations, condition results, and execution trace summary. The evaluator must return `response_valid: true` only when the successor satisfies its task-specific response check. For `phase: "measurement"`, it measures the changed program and returns the normal result fields; its details are passed to the proposer when opening the next residual.
 
 QuantForge invokes candidate Python in subprocesses. Run candidate code under an isolation mechanism appropriate for the environment; a Python subprocess alone has the caller's permissions.
 

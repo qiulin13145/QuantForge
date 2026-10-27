@@ -9,14 +9,12 @@ def main():
     namespace = {}
     exec(request["context"]["parent_source"], namespace)
     offset = namespace["run"](0)
-    schema = request.get("json_schema", {})
-    properties = schema.get("properties", {})
-    if "next_residual" in properties:
-        response = {
-            "source": f"def run(x):\n    return x + {offset + 2}\n",
-            "next_residual": {"id": f"next-residual-{offset + 2}", "question": "Can the next change improve the result?",
-                              "scope": "run", "probe_input": 1},
-        }
+    if request["phase"] == "response":
+        response = {"source": f"def run(x):\n    return x + {offset + 2}\n"}
+    elif request["phase"] == "residual":
+        assert "remeasurement" in request["context"]
+        response = {"id": f"next-residual-{offset + 2}", "question": "Can the next change improve the result?",
+                    "scope": "run", "probe_input": 1}
     else:
         response = {
             "source": f"def run(x):\n    return x + {offset + 1}\n",

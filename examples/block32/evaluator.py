@@ -73,7 +73,7 @@ def evaluate(request: dict[str, Any]) -> dict[str, Any]:
         if not callable(parent):
             raise ValueError('parent must define quantize(values, condition)')
         rng = random.Random(seed)
-        total = baseline = 0.0
+        total = baseline = absolute_error = worst_block_mse = 0.0
         changed = False
         for index in range(count):
             # Real numeric inputs, intentionally small and deterministic.
@@ -88,7 +88,10 @@ def evaluate(request: dict[str, Any]) -> dict[str, Any]:
             ref = list(parent(block.copy(), {'id': 'parent', 'kind': 'primary'}))
             if not legal_block(ref):
                 raise ValueError('parent produced invalid Block32 output')
-            total += sum((x - q) ** 2 for x, q in zip(block, decoded))
+            block_error = sum((x - q) ** 2 for x, q in zip(block, decoded))
+            total += block_error
+            absolute_error += sum(abs(x - q) for x, q in zip(block, decoded))
+            worst_block_mse = max(worst_block_mse, block_error / 32)
             baseline += sum((x - q) ** 2 for x, q in zip(block, ref))
             changed |= decoded != ref
     score = total / (count * 32)
@@ -97,7 +100,10 @@ def evaluate(request: dict[str, Any]) -> dict[str, Any]:
     outcome = ('improved' if score < baseline_score - tolerance else
                'worse' if score > baseline_score + tolerance else 'unchanged')
     result = {'success': True, 'safe': True, 'score': score, 'outcome': outcome,
-              'signature': changed, 'details': {'baseline_score': baseline_score,
+              'signature': changed, 'parent_equivalent': not changed,
+              'details': {'baseline_score': baseline_score,
+                                                 'mean_absolute_error': absolute_error / (count * 32),
+                                                 'worst_block_mse': worst_block_mse,
                                                  'num_blocks': count, 'seed': seed,
                                                  'phase': phase}}
     if phase == 'probe':

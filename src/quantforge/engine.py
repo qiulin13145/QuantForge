@@ -16,7 +16,8 @@ from .verification import check_response
 
 RESPONSES = {"SUPPORTED": "EXTEND_OR_COMPOSE", "TARGET_ONLY": "REPAIR_EXPLANATION", "MEDIATOR_ONLY": "REPAIR_TRANSFER", "UNRESOLVED": "ADD_DISCRIMINATOR", "NO_EFFECT": "RETIRE_INTERVENTION", "UNSAFE": "RESTORE_PARENT"}
 PROPOSAL_SCHEMA = {"type": "object", "required": ["source", "explanations", "conditions"], "properties": {"source": {"type": "string"}, "explanations": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string"}, "claim": {"type": "string"}}, "required": ["id", "claim"], "additionalProperties": False}}, "conditions": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string"}, "kind": {"type": "string", "enum": ["primary", "control"]}, "cost": {"type": "number"}, "source": {"type": "string"}, "predictions": {"type": "object", "additionalProperties": {"type": "string"}}}, "required": ["id", "kind", "cost", "predictions"], "additionalProperties": False}}}, "additionalProperties": False}
-RESPONSE_SCHEMA = {"type": "object", "required": ["source", "next_residual"], "properties": {"source": {"type": "string"}, "next_residual": {"type": "object", "required": ["id", "question", "scope", "probe_input"], "properties": {"id": {"type": "string"}, "question": {"type": "string"}, "scope": {"type": "string"}, "probe_input": {}}, "additionalProperties": False}}, "additionalProperties": False}
+RESIDUAL_SCHEMA = {"type": "object", "required": ["id", "question", "scope", "probe_input"], "properties": {"id": {"type": "string"}, "question": {"type": "string"}, "scope": {"type": "string"}, "probe_input": {}}, "additionalProperties": False}
+RESPONSE_SCHEMA = {"type": "object", "required": ["source"], "properties": {"source": {"type": "string"}}, "additionalProperties": False}
 
 
 def digest(value):
@@ -120,6 +121,8 @@ def _evaluation(workspace, state, key, source, condition, phase="evaluation", co
     result = _invoke(workspace, state, key, "evaluator", request, costs=costs)
     if type(result.get("success")) is not bool or type(result.get("safe")) is not bool or type(result.get("signature")) is not bool or not isinstance(result.get("outcome"), str):
         raise ContractError(f"{key}: malformed evaluator result")
+    if "parent_equivalent" in result and type(result["parent_equivalent"]) is not bool:
+        raise ContractError(f"{key}: parent_equivalent must be a boolean")
     if result["success"] and result["safe"] and (isinstance(result.get("score"), bool) or not isinstance(result.get("score"), (int, float)) or not math.isfinite(result["score"])):
         raise ContractError(f"{key}: score must be finite")
     return result
@@ -127,8 +130,13 @@ def _evaluation(workspace, state, key, source, condition, phase="evaluation", co
 
 def _prompt(phase, state, parent, residual, extra):
     context = {"phase": phase, "contract": state["config"]["contract"], "parent_source": parent["source"], "parent_score": parent["score"], "residual": residual, "history": state["history"][-10:], **extra}
-    instruction = ("Propose executable Python code, competing explanations and pre-registered categorical predictions. Specify each condition's cost as a positive integer number of evaluator calls. A control is a complete Python source and should differ only by its stated intervention. The first explanation is the focal one. Return a JSON object matching the schema." if phase == "proposal" else "Implement the required verdict response in the targeted function. Return a changed complete Python program and an actionable next residual with a new unique ID and a probe input. Return a JSON object matching the schema.")
-    return {"prompt": instruction + "\n\n" + json.dumps(context, indent=2), "json_schema": PROPOSAL_SCHEMA if phase == "proposal" else RESPONSE_SCHEMA, "phase": phase, "context": context}
+    instructions = {
+        "proposal": "Propose executable Python code, competing explanations and pre-registered categorical predictions. Specify each condition's cost as a positive integer number of evaluator calls. A control is a complete Python source and should differ only by its stated intervention. The first explanation is the focal one. Return a JSON object matching the schema.",
+        "response": "Implement the required verdict response in the targeted function. Return a changed complete Python program matching the schema.",
+        "residual": "Use the remeasurement of the revised program to propose the next actionable design question, with a new unique ID, targeted function and probe input. Return a JSON object matching the schema.",
+    }
+    schemas = {"proposal": PROPOSAL_SCHEMA, "response": RESPONSE_SCHEMA, "residual": RESIDUAL_SCHEMA}
+    return {"prompt": instructions[phase] + "\n\n" + json.dumps(context, indent=2), "json_schema": schemas[phase], "phase": phase, "context": context}
 
 
 def run_round(workspace):
@@ -153,10 +161,20 @@ def run_round(workspace):
                 raise ContractError("baseline evaluation failed")
             parent["score"] = base["score"]
             save(path, state)
-        proposal = _invoke(workspace, state, "proposal", "proposer", _prompt("proposal", state, parent, residual, {}))
-        conditions = validate_and_select(proposal)
-        if any(type(c["cost"]) is not int for c in conditions):
-            raise ContractError("condition cost must be an integer number of evaluator calls")
+        feedback = {}
+        for attempt in range(3):
+            key = "proposal" if attempt == 0 else f"proposal:{attempt + 1}"
+            proposal = _invoke(workspace, state, key, "proposer", _prompt("proposal", state, parent, residual, feedback))
+            try:
+                conditions = validate_and_select(proposal)
+                if any(type(c["cost"]) is not int for c in conditions):
+                    raise ContractError("condition cost must be an integer number of evaluator calls")
+            except ContractError as exc:
+                if attempt == 2:
+                    raise
+                feedback = {"proposal_feedback": str(exc), "previous_proposal": proposal}
+            else:
+                break
         packet = {"parent_id": parent["id"], "parent_source_hash": digest(parent["source"]), "residual_id": residual["id"], "contract": state["config"]["contract"], "proposal": proposal, "conditions": conditions, "evaluator": _backend_identity(state["config"], "evaluator")}
         packet_hash = digest(packet)
         if "packet_hash" in pending and pending["packet_hash"] != packet_hash:
@@ -184,9 +202,6 @@ def run_round(workspace):
             response = _invoke(workspace, state, "response", "proposer", _prompt("response", state, parent, residual, {"candidate_source": proposal["source"], "verdict": outcome, "required_response": RESPONSES[outcome], "conditions": results}))
             if not isinstance(response.get("source"), str):
                 raise ContractError("response must include executable source")
-            _validate_residual(response.get("next_residual"))
-            if any(r["id"] == response["next_residual"]["id"] for r in state["residuals"]):
-                raise ContractError("next residual id already exists")
             probe_key = "probe"
             if probe_key in pending["calls"]:
                 if "error" in pending["calls"][probe_key]:
@@ -205,7 +220,7 @@ def run_round(workspace):
                 pending["calls"][probe_key] = {"result": proof}
                 state["in_flight"] = None
                 save(path, state)
-            probe_condition = {"id": "response_probe", "kind": "probe", "verdict": outcome, "required_response": RESPONSES[outcome], "candidate_source": proposal["source"], "primary_condition": conditions[0], "probe": proof}
+            probe_condition = {"id": "response_probe", "kind": "probe", "verdict": outcome, "required_response": RESPONSES[outcome], "candidate_source": proposal["source"], "primary_condition": conditions[0], "residual": residual, "explanations": proposal["explanations"], "results": results, "probe": proof}
             checked = _evaluation(workspace, state, "response_probe", response["source"], probe_condition, phase="probe")
             if not checked["success"] or not checked["safe"] or checked.get("response_valid") is not True:
                 raise ContractError("the evaluator did not confirm the verdict response")
@@ -215,9 +230,14 @@ def run_round(workspace):
             descendant_id = f"round-{pending['round']}-response"
             good = measured["score"] <= parent["score"] if state["config"].get("direction", "min") == "min" else measured["score"] >= parent["score"]
             if good:
+                next_residual = _invoke(workspace, state, "next_residual", "proposer", _prompt("residual", state, parent, residual, {"candidate_source": proposal["source"], "revised_source": response["source"], "verdict": outcome, "conditions": results, "remeasurement": measured}))
+                _validate_residual(next_residual)
+                if any(r["id"] == next_residual["id"] for r in state["residuals"]):
+                    raise ContractError("next residual id already exists")
                 state["programs"].append({"id": descendant_id, "source": response["source"], "score": measured["score"], "parent_id": parent["id"]})
-                residual["status"] = "CLOSED" if outcome == "SUPPORTED" else "REFRAMED"
-                state["residuals"].append({**response["next_residual"], "program_id": descendant_id, "status": "OPEN"})
+                if outcome != "UNRESOLVED":
+                    residual["status"] = "CLOSED" if outcome == "SUPPORTED" else "REFRAMED"
+                state["residuals"].append({**next_residual, "program_id": descendant_id, "status": "OPEN"})
             record.update({"probe": proof, "probe_evaluation": checked, "descendant_id": descendant_id if good else None, "remeasurement": measured})
         state["history"].append(record)
         state["round"] = pending["round"]

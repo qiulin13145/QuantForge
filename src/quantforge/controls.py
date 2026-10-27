@@ -62,7 +62,7 @@ def verdict(proposal, conditions, results, parent_score, direction="min"):
     primary = results[conditions[0]["id"]]
     improved = primary["score"] < parent_score if direction == "min" else primary["score"] > parent_score
     signature = primary["signature"]
-    if not improved and not signature:
+    if primary.get("parent_equivalent") is True:
         return "NO_EFFECT", False
     focal = proposal["explanations"][0]["id"]
     competitors = [e["id"] for e in proposal["explanations"][1:]]
@@ -71,8 +71,8 @@ def verdict(proposal, conditions, results, parent_score, direction="min"):
     resolved = matches and excludes
     if improved and signature and resolved:
         return "SUPPORTED", True
-    if improved:
+    if improved and not signature:
         return "TARGET_ONLY", True
     if signature and resolved:
         return "MEDIATOR_ONLY", False
-    return "UNRESOLVED", False
+    return "UNRESOLVED", improved

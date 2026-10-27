@@ -37,6 +37,18 @@ class SearchTests(unittest.TestCase):
         results["primary"]["signature"] = False
         self.assertEqual(verdict(p, selected, results, 2)[0], "TARGET_ONLY")
 
+    def test_inconclusive_evidence_does_not_discard_gain_or_imply_no_effect(self):
+        p = proposal()
+        selected = validate_and_select(p)
+        results = {"primary": {"safe": True, "success": True, "score": 1, "signature": True, "outcome": "gain"},
+                   "cheap": {"safe": True, "success": True, "score": 2, "signature": False, "outcome": "gain"}}
+        self.assertEqual(verdict(p, selected, results, 2), ("UNRESOLVED", True))
+        results["primary"].update(score=3, signature=False, outcome="loss")
+        self.assertEqual(verdict(p, selected, results, 2), ("UNRESOLVED", False))
+        results["primary"]["score"] = 2
+        results["primary"]["parent_equivalent"] = True
+        self.assertEqual(verdict(p, selected, results, 2), ("NO_EFFECT", False))
+
     def test_probe_rejects_noop_and_unreached_change(self):
         before = "def run(x):\n    return x + 1\n"
         with self.assertRaises(ContractError):
@@ -88,6 +100,44 @@ class SearchTests(unittest.TestCase):
             recover(workspace)
             run_round(workspace)
             self.assertEqual(load(workspace / "state.json")["spent"], 6)
+
+    def test_inconclusive_round_preserves_original_residual(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "initial.py").write_text("def run(x):\n    return x\n")
+            proposer = root / "proposer.py"
+            proposer.write_text((FIXTURES / "proposer.py").read_text().replace('"targeted": "loss"', '"targeted": "other"'))
+            config = {"initial_program": "initial.py", "initial_residual": {"id": "r0", "question": "What produces the gain?", "scope": "run", "probe_input": 1}, "contract": {}, "budget": 10, "proposer": [sys.executable, str(proposer)], "evaluator": [sys.executable, str(FIXTURES / "evaluator.py")]}
+            config_path = root / "config.json"
+            config_path.write_text(json.dumps(config))
+            workspace = root / "run"
+            initialize(workspace, config_path)
+            record = run_round(workspace)
+            state = load(workspace / "state.json")
+            self.assertEqual(record["verdict"], "UNRESOLVED")
+            self.assertTrue(record["retained_candidate"])
+            self.assertEqual(state["residuals"][0]["status"], "OPEN")
+            self.assertEqual(state["residuals"][-1]["program_id"], record["descendant_id"])
+
+    def test_unidentifiable_proposal_is_revised_before_evaluation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "initial.py").write_text("def run(x):\n    return x\n")
+            proposer = root / "proposer.py"
+            original = (FIXTURES / "proposer.py").read_text()
+            injection = ('    if request["phase"] == "proposal" and "proposal_feedback" not in request["context"]:\n'
+                         '        for condition in response["conditions"]:\n'
+                         '            condition["predictions"]["alternative"] = condition["predictions"]["targeted"]\n')
+            proposer.write_text(original.replace("    json.dump(response, sys.stdout)", injection + "    json.dump(response, sys.stdout)"))
+            config = {"initial_program": "initial.py", "initial_residual": {"id": "r0", "question": "What produces the gain?", "scope": "run", "probe_input": 1}, "contract": {}, "budget": 10, "proposer": [sys.executable, str(proposer)], "evaluator": [sys.executable, str(FIXTURES / "evaluator.py")]}
+            config_path = root / "config.json"
+            config_path.write_text(json.dumps(config))
+            workspace = root / "run"
+            initialize(workspace, config_path)
+            record = run_round(workspace)
+            state = load(workspace / "state.json")
+            self.assertEqual(record["verdict"], "SUPPORTED")
+            self.assertEqual(state["spent"], 5)
 
 
 if __name__ == "__main__":
