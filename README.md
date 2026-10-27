@@ -1,5 +1,11 @@
 <h1 align="center">QuantForge</h1>
 
+<div align="center">
+
+https://github.com/user-attachments/assets/3faadda6-9e3e-49b8-845a-a8aa0a298df4
+
+</div>
+
 <p align="center">
   <strong>Discovering quantization algorithms through evidence-guided program evolution</strong>
 </p>
