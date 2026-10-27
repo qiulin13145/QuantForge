@@ -17,6 +17,8 @@
 <p align="center">
   <a href="https://arxiv.org/abs/2609.34680">Paper</a> ·
   <a href="#how-it-works">How It Works</a> ·
+  <a href="#a-control-that-changed-the-next-design">Case Study</a> ·
+  <a href="#the-discovered-algorithm-hires">HiRes</a> ·
   <a href="#paper-results">Results</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="docs/backends.md">Documentation</a>
@@ -50,6 +52,43 @@ QuantForge builds a search around a simple question: **what should the next prog
 
 The search is built around a frozen task contract and supports interchangeable proposer and evaluator commands. Local run state keeps the experiment packet, program lineage, budget, and evidence together across rounds.
 
+## A Control That Changed the Next Design
+
+On Qwen3-4B, the search encountered unusually large activation-quantization error in `down_proj`. Was it caused by **which channels shared a Block32 exponent**, or by the tensor's **global dynamic range**? A function-preserving permutation separated the two explanations and changed the next code revision.
+
+<p align="center">
+  <img src="assets/control-guided-update.png" width="100%" alt="A real paper case: permuting down-projection input channels changes block membership, guides channel equalization, and improves the successor's visible perplexity">
+</p>
+
+The control supported the block-membership explanation. A verdict-guided successor equalized channels according to their contribution to the shared exponent; a free-reflection successor widened the scale search. Both used the same parent and evidence. PPL is measured on the **search-visible Qwen3-4B**; contaminated blocks have a within-block maximum-to-median magnitude ratio greater than 32. See the [paper's verdict-guided example](https://arxiv.org/html/2609.34680v1#A4.SS2.SSS0.Px2.p3).
+
+## The Discovered Algorithm: HiRes
+
+QuantForge's paper develops **HiRes** as three successive responses to measured quantization residuals. The equations below highlight the central computation in each stage; the [paper](https://arxiv.org/html/2609.34680v1#S5) gives the full construction.
+
+**1 · Geometric shaping.** Transform activations and weights in paired coordinates before quantization:
+
+$$
+U = D R_H G P_{\mathrm{ref}},\qquad
+\widetilde X = XU^{\top},\qquad
+\widetilde W = WU^{-1}.
+$$
+
+**2 · Discrete realization.** After installing W4 weights, evaluate a legal A4 code change against the realized operator:
+
+$$
+\Delta(i,c)=2\delta_{ic}[G_Q d_0-K_Q x]_i+\delta_{ic}^{2}[G_Q]_{ii}.
+$$
+
+Here $d_0=q_0-x$, $\delta_{ic}=c-[q_0]_i$, $G_Q=\widehat W^{\top}\widehat W$, and $K_Q=\widehat W^{\top}(W-\widehat W)$. The best negative change is accepted, with at most one code changed per block.
+
+**3 · Structural recovery.** Correct the attention value path, then remeasure and fit the MLP path:
+
+$$
+\overline{\mathbf v}_t=a\mathbf v_t+b\mathbf 1,\qquad
+\overline m=\operatorname{SiLU}\left((1+\beta)g+\alpha\sigma_g\right)\odot(1+\eta)u.
+$$
+
 ## Paper Results
 
 ### Evidence-guided discovery
@@ -71,15 +110,25 @@ Search uses Qwen3-4B; transfer is measured on held-out Llama-3.1-8B WikiText-2. 
 
 ### HiRes: a discovered MXFP4 quantizer
 
-The paper's discovered algorithm combines **geometric shaping**, **discrete realization**, and **structural recovery**, with each stage measured on the model produced by the preceding stage. Across seven models and seven tasks, HiRes obtains the best reported Robust Fit in the comparison.
+Across seven models and seven tasks, HiRes obtains the best **Robust Fit: 0.09300**, compared with 0.09910 for WUSH. It has the lowest Fit-7 on six of the seven models; WUSH leads on Qwen3-4B.
 
-| Method | Seven-model Robust Fit ↓ | Qwen3-32B Fit-7 ↓ |
-|:---|---:|---:|
-| BRQ | 0.11152 | 0.042486 |
-| WUSH | 0.09910 | 0.036489 |
-| **HiRes** | **0.09300** | **0.027369** |
+<p align="center">
+  <img src="assets/fitness-overview.png" width="100%" alt="Per-model Fit-7 for HiRes and WUSH across seven models, and Robust Fit for the four strongest methods">
+</p>
 
-Robust Fit combines average and worst-model damage; lower is better. These are **paper results** under the shared strict MXFP4 W4A4 evaluation contract. See [Section 6.1](https://arxiv.org/html/2609.34680v1#S6.SS1) for the complete comparison.
+<p align="center"><em>Fit-7 combines mean and worst-task damage; Robust Fit applies the same aggregation across models. Lower is better. Data from paper Table 1.</em></p>
+
+<details>
+<summary>Full seven-model Fit-7 results · paper Table 1</summary>
+<p align="center"><img src="assets/paper-fit7-table.png" width="100%" alt="Paper Table 1: Fit-7 across seven models for HiRes and nine baselines"></p>
+</details>
+
+<details>
+<summary>Stage progression and ablations · paper Table 2</summary>
+<p align="center"><img src="assets/paper-fit3-ablation.png" width="100%" alt="Paper Table 2: Fit-3 across HiRes stages and ablations on Qwen3-8B and Llama-3-8B"></p>
+</details>
+
+These are **paper results** under the shared strict MXFP4 W4A4 evaluation contract. See [Section 6.1](https://arxiv.org/html/2609.34680v1#S6.SS1) for the complete comparison.
 
 ## Quick Start
 
