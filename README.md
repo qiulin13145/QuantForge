@@ -1,11 +1,5 @@
 <h1 align="center">QuantForge</h1>
 
-<div align="center">
-
-https://github.com/user-attachments/assets/3faadda6-9e3e-49b8-845a-a8aa0a298df4
-
-</div>
-
 <p align="center">
   <strong>Discovering quantization algorithms through evidence-guided program evolution</strong>
 </p>
@@ -36,6 +30,12 @@ https://github.com/user-attachments/assets/3faadda6-9e3e-49b8-845a-a8aa0a298df4
 </p>
 
 ---
+
+<div align="center">
+
+https://github.com/user-attachments/assets/3faadda6-9e3e-49b8-845a-a8aa0a298df4
+
+</div>
 
 **QuantForge** discovers post-training quantization algorithms by combining AI-driven program evolution with controlled experiments. Starting from an initial program and an evaluator, it tests candidates, investigates why they work, and uses the evidence to guide the next revision.
 
