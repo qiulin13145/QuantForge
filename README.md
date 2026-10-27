@@ -39,7 +39,7 @@ In our [paper](https://arxiv.org/abs/2609.34680), QuantForge discovers **HiRes**
   <img src="assets/quantforge-overview.svg" width="100%" alt="QuantForge overview: programs and evidence co-evolve through targeted experiments and residual compilation">
 </p>
 
-<p align="center"><em>QuantForge retains effective programs while controlled evidence guides their next revision.</em> <a href="assets/quantforge-overview.pdf">Original figure · PDF</a></p>
+<p align="center"><em>QuantForge retains effective programs while controlled evidence guides their next revision.</em></p>
 
 ## How It Works
 
@@ -54,13 +54,22 @@ The search is built around a frozen task contract and supports interchangeable p
 
 ## A Control That Changed the Next Design
 
-On Qwen3-4B, the search encountered unusually large activation-quantization error in `down_proj`. Was it caused by **which channels shared a Block32 exponent**, or by the tensor's **global dynamic range**? A function-preserving permutation separated the two explanations and changed the next code revision.
+An evaluation score can show that a program works, but it does not necessarily explain **why**. Different explanations can suggest very different changes to the next program. QuantForge uses a controlled experiment to distinguish those explanations before choosing a direction.
+
+Consider an example from the search on Qwen3-4B. In layers 18–23, the activation-quantization mean squared error at `down_proj` was **3.1 times** that at `up_proj`. In MXFP4, each block of 32 values shares a scale: a few large values can set the scale and make smaller values in the same block harder to represent. The search registered two possible explanations:
+
+- **Block membership:** large channels are concentrated in a few blocks, so which channels share a scale matters.
+- **Global dynamic range:** the overall range dominates the error, regardless of how channels are grouped into blocks.
+
+To tell them apart, QuantForge shuffled the input channels and inversely reordered the weight columns. This preserves the layer's original function before quantization while changing which channels share a block. If block membership matters, spreading the large channels should increase the error; if global range dominates, the error should stay roughly the same.
 
 <p align="center">
   <img src="assets/control-guided.gif" width="100%" alt="Animated paper example: observe a quantization residual, run a channel-permutation control, and use its verdict to guide the next program">
 </p>
 
-The control supported the block-membership explanation. A verdict-guided successor equalized channels according to their contribution to the shared exponent; a free-reflection successor widened the scale search. Both used the same parent and evidence. PPL is measured on the **search-visible Qwen3-4B**; contaminated blocks have a within-block maximum-to-median magnitude ratio greater than 32. See the [paper's verdict-guided example](https://arxiv.org/html/2609.34680v1#A4.SS2.SSS0.Px2.p3).
+The error ratio rose from **3.1× to 4.6×**, supporting the block-membership explanation. QuantForge turned that verdict into a specific code change: identify the channels that drive each block's shared scale and equalize them. This successor improved the search-visible Qwen3-4B perplexity from **11.42 to 11.19**. Given the same parent and evidence, a free-reflection successor widened the scale search instead and reached **11.44**.
+
+This is how QuantForge turns experimental evidence into **a concrete direction for the next program**.
 
 ## The Discovered Algorithm: HiRes
 
@@ -69,24 +78,6 @@ QuantForge's paper develops **HiRes** as three successive responses to measured 
 <p align="center">
   <img src="assets/hires-equations.png" width="100%" alt="HiRes equations for geometric shaping, discrete realization, and attention and MLP structural recovery">
 </p>
-
-<p align="center"><a href="assets/hires-equations.svg">View equations in vector format</a></p>
-
-<details>
-<summary>Copy the core equations · LaTeX</summary>
-
-```latex
-U = D R_H G P_{\mathrm{ref}},
-\quad \widetilde X = XU^{\top},\quad \widetilde W = WU^{-1}.
-
-\Delta(i,c) = 2\delta_{ic}[G_Q d_0-K_Q x]_i
-              + \delta_{ic}^{2}[G_Q]_{ii}.
-
-\overline{\mathbf v}_t = a\mathbf v_t+b\mathbf 1,
-\quad \overline m = \operatorname{SiLU}\left((1+\beta)g
-                    + \alpha\sigma_g\right)\odot(1+\eta)u.
-```
-</details>
 
 See [Section 5 of the paper](https://arxiv.org/html/2609.34680v1#S5) for definitions and the complete algorithm.
 
@@ -117,7 +108,7 @@ Across seven models and seven tasks, HiRes obtains the best **Robust Fit: 0.0930
 <p align="center"><img src="assets/paper-fit3-ablation.png" width="100%" alt="Paper Table 2: Fit-3 across HiRes stages and ablations on Qwen3-8B and Llama-3-8B"></p>
 </details>
 
-These are **paper results** under the shared strict MXFP4 W4A4 evaluation contract. See [Section 6.1](https://arxiv.org/html/2609.34680v1#S6.SS1) for the complete comparison.
+All methods use the same strict MXFP4 W4A4 evaluation contract.
 
 ## Quick Start
 
