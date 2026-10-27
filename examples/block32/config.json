@@ -1,0 +1,15 @@
+{
+  "initial_program": "baseline.py",
+  "initial_residual": {
+    "id": "block32-residual",
+    "question": "Which change reduces reconstruction error under the shared-scale E2M1 representation?",
+    "scope": "quantize",
+    "probe_input": {"args": [[-2.0, -1.75, -1.5, -1.25, -1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75, 4.0, 4.25, 4.5, 4.75, 5.0, 5.25, 5.5, 5.75], {"id": "primary"}]}
+  },
+  "contract": {"num_blocks": 32, "seed": 0, "format": "Block32 E2M1 with E8M0 shared scale", "objective": "minimize reconstruction MSE"},
+  "direction": "min",
+  "budget": 50,
+  "timeout_seconds": 300,
+  "proposer": ["python3", "-m", "quantforge.backends.codex"],
+  "evaluator": ["python3", "{config_dir}/evaluator.py"]
+}
