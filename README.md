@@ -1,7 +1,7 @@
 <h1 align="center">QuantForge</h1>
 
 <p align="center">
-  <strong>Discovering algorithms through evidence-guided program evolution</strong>
+  <strong>Discovering quantization algorithms through evidence-guided program evolution</strong>
 </p>
 
 <p align="center">
@@ -31,7 +31,7 @@
 
 ---
 
-**QuantForge** discovers executable algorithms by combining AI-driven program evolution with controlled experiments. Give it an initial program and a task-specific evaluator; it tests candidates, investigates why they work, and uses the evidence to guide the next revision.
+**QuantForge** discovers post-training quantization algorithms by combining AI-driven program evolution with controlled experiments. Starting from an initial program and an evaluator, it tests candidates, investigates why they work, and uses the evidence to guide the next revision.
 
 In our [paper](https://arxiv.org/abs/2609.34680), QuantForge discovers **HiRes**, a hierarchical MXFP4 post-training quantization algorithm. Under a matched search budget, it reaches a held-out transfer target in **6 of 8 runs**, compared with **3 of 8** for reflection memory.
 
@@ -108,33 +108,29 @@ cd QuantForge
 python3 -m pip install -e .
 ```
 
-Start with **bin packing**: the included example searches for a heuristic that fits items into as few bins as possible. It uses an authenticated [Codex CLI](https://github.com/openai/codex) proposer.
+Start a search with the included Block32 configuration and an authenticated [Codex CLI](https://github.com/openai/codex) proposer:
 
 ```bash
-quantforge init runs/binpacking --config examples/binpacking/config.json
-quantforge step runs/binpacking
+quantforge init runs/block32 --config examples/block32/config.json
+quantforge step runs/block32
 ```
 
-### Design your own algorithm
+### Configure your search
 
-Copy the example and adapt three pieces to your problem:
+To explore your own quantization design, use the [Block32 configuration](examples/block32/config.json) as a starting point and provide:
+
+1. **An initial program:** a Python file with the function to evolve.
+2. **An evaluator:** a command that scores candidates, checks the task contract, and verifies verdict-guided revisions.
+3. **A configuration:** the objective, initial design question, function name, probe input, evaluation budget, and proposer and evaluator commands.
+
+Point QuantForge to your configuration and run a round:
 
 ```bash
-cp -R examples/binpacking my-task
+quantforge init runs/my-search --config path/to/config.json
+quantforge step runs/my-search
 ```
 
-1. **Initial program:** implement your algorithm as a Python function in `baseline.py`.
-2. **Evaluator:** define how to run a candidate, check its validity, score it, and test a verdict-guided revision in `evaluator.py`.
-3. **Task configuration:** set your objective, first design question, function name, probe input, and budget in `config.json`.
-
-Then run your search:
-
-```bash
-quantforge init runs/my-task --config my-task/config.json
-quantforge step runs/my-task
-```
-
-Run `step` again to continue. See [design your own algorithm](docs/design-your-own.md) for the walkthrough and [backend interfaces](docs/backends.md) to connect a different proposer or evaluator. The [Block32 example](examples/block32/) shows how to apply the same loop to quantization.
+Run `step` again to continue. The [backend protocol](docs/backends.md) describes the proposer and evaluator interfaces.
 
 ## Citation
 
