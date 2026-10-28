@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 import sys
 
-from .controls import ContractError
-from .engine import abort_round, initialize, recover, retry_failed, run_round
-from .storage import load
+from .protocol import ContractError
+from .runtime.workspace import abort_round, initialize, load, recover, retry_failed
+from .search.engine import run_round
 
 
 def main():
@@ -39,7 +39,21 @@ def main():
             result = {"retry": args.key}
         else:
             state = load(args.workspace / "state.json")
-            result = {"round": state["round"], "spent": state["spent"], "budget": state["config"]["budget"], "open_residuals": [r for r in state["residuals"] if r["status"] == "OPEN"], "pending": state["pending"] and {k: v for k, v in state["pending"].items() if k not in ("packet", "calls")}, "in_flight": state["in_flight"]}
+            result = {
+                "round": state["round"],
+                "spent": state["spent"],
+                "budget": state["config"]["budget"],
+                "open_residuals": [
+                    r for r in state["residuals"] if r["status"] == "OPEN"
+                ],
+                "pending": state["pending"]
+                and {
+                    k: v
+                    for k, v in state["pending"].items()
+                    if k not in ("packet", "calls")
+                },
+                "in_flight": state["in_flight"],
+            }
         print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))
     except (ContractError, OSError, ValueError, RuntimeError, KeyError) as exc:
         print(f"quantforge: {exc}", file=sys.stderr)

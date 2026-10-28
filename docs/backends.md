@@ -2,6 +2,8 @@
 
 The configuration identifies each backend as an argument array. QuantForge sends one JSON object to stdin and expects one JSON object on stdout. `{config_dir}` in an argument expands to the directory containing the configuration file. Each backend runs as a separate process with the configured timeout.
 
+The shared records are defined in [`protocol.py`](../src/quantforge/protocol.py), and proposer output schemas in [`schemas.py`](../src/quantforge/schemas.py). The [architecture guide](architecture.md) shows how these messages move through a search round.
+
 ## Proposer
 
 Requests contain `phase`, `context`, `prompt`, and `json_schema`. The `proposal` phase returns:

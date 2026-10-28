@@ -138,6 +138,10 @@ quantforge step runs/my-search
 
 Run `step` again to continue. The [backend protocol](docs/backends.md) describes the proposer and evaluator interfaces.
 
+### Inside QuantForge
+
+The code follows the search cycle: [`search/`](src/quantforge/search/) organizes experiments and verdict-guided revisions, [`runtime/`](src/quantforge/runtime/) handles execution and persistent state, and [`backends/`](src/quantforge/backends/) connects the proposer. See the [architecture guide](docs/architecture.md) for the data flow and module map.
+
 ## Citation
 
 If QuantForge is useful in your research, please cite:
